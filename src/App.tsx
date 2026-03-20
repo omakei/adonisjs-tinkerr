@@ -15,11 +15,13 @@ export default function App() {
   const [recentProjects, setRecentProjects] = useState<RecentProject[]>([])
   const [opening, setOpening] = useState(false)
   const [openError, setOpenError] = useState<string | null>(null)
+  const [nvmVersions, setNvmVersions] = useState<string[]>([])
   const { isRunning, result, run } = useExecution()
   const { settings, updateSetting } = useSettings()
 
   useEffect(() => {
     loadRecents()
+    window.tinkerr.listNvmVersions().then(setNvmVersions).catch(() => {})
   }, [])
 
   async function loadRecents() {
@@ -61,7 +63,18 @@ export default function App() {
 
   function handleRun(code: string) {
     if (!currentProject) return
-    run(currentProject.path, code)
+    run(currentProject.path, code, currentProject.nodeVersion)
+  }
+
+  async function handleNodeVersionChange(version: string | null) {
+    if (!currentProject) return
+    try {
+      const updated = await window.tinkerr.setProjectNodeVersion(currentProject.path, version)
+      if (updated) {
+        setCurrentProject(updated)
+        setRecentProjects((prev) => prev.map((p) => p.path === updated.path ? updated : p))
+      }
+    } catch {}
   }
 
   const isRight = settings.outputPosition === 'right'
@@ -118,7 +131,12 @@ export default function App() {
         </div>
       </div>
 
-      <Footer currentProject={currentProject} result={result} />
+      <Footer
+        currentProject={currentProject}
+        result={result}
+        nvmVersions={nvmVersions}
+        onNodeVersionChange={handleNodeVersionChange}
+      />
 
       <style>{globalAnimations}</style>
     </div>

@@ -3,6 +3,7 @@ import path from 'path'
 import fs from 'fs'
 import Store from 'electron-store'
 import type { RecentProject } from '../types/ipc'
+import { killWorkerForProject } from './worker_manager'
 
 interface StoreSchema {
   recentProjects: RecentProject[]
@@ -39,10 +40,24 @@ export function registerProjectHandlers(ipcMain: IpcMain) {
     // Refresh versions in case the format changed or packages were updated
     const refreshed = projects.map((p) => {
       const detected = detectAdonisProject(p.path)
-      return detected ? { ...p, version: detected.version } : p
+      // Preserve the stored nodeVersion when refreshing
+      return detected ? { ...detected, nodeVersion: p.nodeVersion } : p
     })
     store.set('recentProjects', refreshed)
     return refreshed
+  })
+
+  ipcMain.handle('set-project-node-version', (_event, projectPath: string, version: string | null) => {
+    const projects = store.get('recentProjects')
+    const updated = projects.map((p) =>
+      p.path === projectPath ? { ...p, nodeVersion: version ?? undefined } : p
+    )
+    store.set('recentProjects', updated)
+
+    // Kill the worker so the next execution spawns with the new node binary
+    killWorkerForProject(projectPath)
+
+    return updated.find((p) => p.path === projectPath) ?? null
   })
 }
 
@@ -107,9 +122,15 @@ function extractFullVersion(projectPath: string, rangeString: string): string {
 function saveRecentProject(project: RecentProject) {
   const existing = store.get('recentProjects')
 
+  // Preserve the previously stored nodeVersion for this path (if any)
+  const prev = existing.find((p) => p.path === project.path)
+  const entry: RecentProject = prev?.nodeVersion
+    ? { ...project, nodeVersion: prev.nodeVersion }
+    : project
+
   // Remove duplicate (same path), add new entry at the front, cap at 10
   const updated = [
-    project,
+    entry,
     ...existing.filter((p) => p.path !== project.path),
   ].slice(0, 10)
 

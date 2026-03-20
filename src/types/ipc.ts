@@ -3,6 +3,7 @@ export interface RecentProject {
   name: string
   version: string
   lastOpened: string
+  nodeVersion?: string
 }
 
 export interface SqlQuery {
@@ -32,6 +33,7 @@ export interface ExecutionResult {
 export interface ExecuteCodePayload {
   projectPath: string
   code: string
+  nodeVersion?: string
 }
 
 export interface TypeDefinition {
@@ -47,6 +49,8 @@ declare global {
       executeCode: (payload: ExecuteCodePayload) => Promise<ExecutionResult>
       listRecentProjects: () => Promise<RecentProject[]>
       getProjectTypes: (projectPath: string) => Promise<TypeDefinition[]>
+      listNvmVersions: () => Promise<string[]>
+      setProjectNodeVersion: (projectPath: string, version: string | null) => Promise<RecentProject>
       nodeVersion: string
     }
   }

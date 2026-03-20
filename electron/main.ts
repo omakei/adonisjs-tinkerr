@@ -7,6 +7,7 @@ import path from 'path'
 import { registerProjectHandlers } from './ipc/project_handler'
 import { registerExecutorHandlers } from './ipc/executor_handler'
 import { registerTypesHandlers } from './ipc/types_handler'
+import { registerNvmHandlers } from './ipc/nvm_handler'
 import { killAllWorkers } from './ipc/worker_manager'
 
 function createWindow() {
@@ -40,6 +41,7 @@ app.whenReady().then(() => {
   registerProjectHandlers(ipcMain)
   registerExecutorHandlers(ipcMain)
   registerTypesHandlers(ipcMain)
+  registerNvmHandlers(ipcMain)
   createWindow()
 
   app.on('activate', () => {

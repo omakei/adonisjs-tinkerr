@@ -15,6 +15,7 @@ import path from 'path'
 import fs from 'fs'
 import { parse as parseDotenv } from 'dotenv'
 import { buildWorkerContent } from './worker_template'
+import { resolveNodeBinary, checkNodeEnginesCompatibility } from './nvm_handler'
 import type { ExecutionResult } from '../types/ipc'
 
 const IDLE_TIMEOUT_MS     = 5 * 60 * 1000 // 5 minutes
@@ -41,6 +42,10 @@ interface WorkerState {
   _bootTimeout: ReturnType<typeof setTimeout>
   // Partial stdout line buffer
   buffer: string
+  // Accumulated stderr — used to surface boot errors to the user
+  stderrBuffer: string
+  // The node version this worker was spawned with (undefined = system node)
+  nodeVersion: string | undefined
 }
 
 const workers = new Map<string, WorkerState>()
@@ -50,13 +55,20 @@ const workers = new Map<string, WorkerState>()
 export async function executeInWorker(
   projectPath: string,
   code: string,
-  startTime: number
+  startTime: number,
+  nodeVersion?: string
 ): Promise<ExecutionResult> {
   let state = workers.get(projectPath)
 
+  // If the requested node version differs from what the worker was spawned with, restart it
+  if (state && state.nodeVersion !== nodeVersion) {
+    killWorker(projectPath)
+    state = undefined
+  }
+
   if (!state) {
     try {
-      state = spawnWorker(projectPath)
+      state = spawnWorker(projectPath, nodeVersion)
       workers.set(projectPath, state)
     } catch (err: unknown) {
       const e = err as Error
@@ -132,7 +144,7 @@ export function killAllWorkers(): void {
 
 // ── Worker lifecycle ────────────────────────────────────────────────────────
 
-function spawnWorker(projectPath: string): WorkerState {
+function spawnWorker(projectPath: string, nodeVersion?: string): WorkerState {
   const tinkerrDir = path.join(projectPath, '.tinkerr')
   fs.mkdirSync(tinkerrDir, { recursive: true })
 
@@ -140,11 +152,18 @@ function spawnWorker(projectPath: string): WorkerState {
   const workerPath = path.join(tinkerrDir, 'worker.mjs')
   fs.writeFileSync(workerPath, buildWorkerContent(), 'utf-8')
 
+  // Fail fast with a clear message if the selected version can't satisfy engines.node
+  if (nodeVersion) {
+    const incompatible = checkNodeEnginesCompatibility(projectPath, nodeVersion)
+    if (incompatible) throw new Error(incompatible)
+  }
+
   const tsLoaderArgs = findTypeScriptLoaderArgs(projectPath)
   const projectEnv  = loadProjectEnv(projectPath)
+  const nodeBin     = nodeVersion ? resolveNodeBinary(nodeVersion) : 'node'
 
   const child = spawn(
-    'node',
+    nodeBin,
     [...tsLoaderArgs, '--experimental-vm-modules', workerPath],
     {
       cwd: projectPath,
@@ -175,6 +194,8 @@ function spawnWorker(projectPath: string): WorkerState {
     _readyReject,
     _bootTimeout,
     buffer: '',
+    stderrBuffer: '',
+    nodeVersion,
   }
 
   child.stdout.on('data', (chunk: Buffer) => {
@@ -188,9 +209,19 @@ function spawnWorker(projectPath: string): WorkerState {
     }
   })
 
-  child.on('exit', () => {
+  child.stderr.on('data', (chunk: Buffer) => {
+    state.stderrBuffer += chunk.toString()
+  })
+
+  child.on('exit', (code) => {
     clearTimeout(state._bootTimeout)
     if (state.idleTimer) clearTimeout(state.idleTimer)
+    // Reject the ready promise in case the process died before sending { type: 'ready' }
+    const stderrSnippet = state.stderrBuffer.trim().slice(-2000)
+    const message = stderrSnippet
+      ? `Worker failed to start:\n\n${stderrSnippet}`
+      : `Worker exited before booting (code ${code ?? 'null'})`
+    state._readyReject(new Error(message))
     workers.delete(projectPath)
 
     // Reject all in-flight executions

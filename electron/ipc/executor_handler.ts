@@ -14,11 +14,11 @@ export function registerExecutorHandlers(ipcMain: IpcMain) {
 }
 
 async function executeCode(payload: ExecuteCodePayload): Promise<ExecutionResult> {
-  const { projectPath, code } = payload
+  const { projectPath, code, nodeVersion } = payload
   const startTime = Date.now()
 
   try {
-    return await executeInWorker(projectPath, code, startTime)
+    return await executeInWorker(projectPath, code, startTime, nodeVersion)
   } catch (err: unknown) {
     const e = err as Error
     return {

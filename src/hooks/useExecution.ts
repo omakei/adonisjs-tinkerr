@@ -4,7 +4,7 @@ import type { ExecutionResult } from '../types/ipc'
 interface UseExecutionReturn {
   isRunning: boolean
   result: ExecutionResult | null
-  run: (projectPath: string, code: string) => Promise<void>
+  run: (projectPath: string, code: string, nodeVersion?: string) => Promise<void>
   clear: () => void
 }
 
@@ -12,13 +12,13 @@ export function useExecution(): UseExecutionReturn {
   const [isRunning, setIsRunning] = useState(false)
   const [result, setResult] = useState<ExecutionResult | null>(null)
 
-  const run = useCallback(async (projectPath: string, code: string) => {
+  const run = useCallback(async (projectPath: string, code: string, nodeVersion?: string) => {
     if (isRunning) return
     setIsRunning(true)
     setResult(null)
 
     try {
-      const execResult = await window.tinkerr.executeCode({ projectPath, code })
+      const execResult = await window.tinkerr.executeCode({ projectPath, code, nodeVersion })
       setResult(execResult)
     } catch (err: unknown) {
       const e = err as Error
